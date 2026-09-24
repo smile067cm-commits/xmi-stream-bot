@@ -238,8 +238,9 @@ app.get(['/stream/:channelId/:messageId', '/stream'], async (req, res) => {
         return;
       }
 
-      // Max chunk per HTTP Range response: 4MB for smooth uninterrupted video buffering
-      const MAX_CHUNK = 4 * 1024 * 1024;
+      // Fast, responsive chunk size (1MB max chunk) so video frames arrive quickly
+      // and mobile browser network timeouts are avoided on any connection speed
+      const MAX_CHUNK = 1024 * 1024;
       if (end - start + 1 > MAX_CHUNK) {
         end = Math.min(start + MAX_CHUNK - 1, fileSize - 1);
       }
