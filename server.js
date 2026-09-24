@@ -239,6 +239,7 @@ app.get(['/stream/:channelId/:messageId', '/stream'], async (req, res) => {
         'Accept-Ranges': 'bytes',
         'Content-Length': chunkSize,
         'Content-Type': mimeType,
+        'Content-Disposition': 'inline',
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-cache'
       });
@@ -260,6 +261,7 @@ app.get(['/stream/:channelId/:messageId', '/stream'], async (req, res) => {
         'Content-Length': fileSize,
         'Accept-Ranges': 'bytes',
         'Content-Type': mimeType,
+        'Content-Disposition': 'inline',
         'Access-Control-Allow-Origin': '*',
         'Cache-Control': 'no-cache'
       });
