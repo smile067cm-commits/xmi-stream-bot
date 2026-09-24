@@ -29,6 +29,7 @@ app.use(cors({
 let client = null;
 let clientReady = false;
 let clientInitPromise = null;
+const mediaCache = new Map();
 
 // Initialize GramJS MTProto Telegram Client
 async function getTelegramClient() {
@@ -194,10 +195,21 @@ app.get(['/stream/:channelId/:messageId', '/stream'], async (req, res) => {
       });
     }
 
-    // Retrieve message from storage channel
-    const messages = await tgClient.getMessages(channelTarget, { ids: [messageId] });
-    const message = messages && messages[0];
-    const media = getMediaDetails(message);
+    // Retrieve message from storage channel with memory caching to avoid MTProto RPC lag on every chunk
+    const cacheKey = `${channelTarget}:${messageId}`;
+    let media = null;
+    const cachedMedia = mediaCache.get(cacheKey);
+    if (cachedMedia && (Date.now() - cachedMedia.timestamp < 3600000)) {
+      media = cachedMedia;
+    } else {
+      const messages = await tgClient.getMessages(channelTarget, { ids: [messageId] });
+      const message = messages && messages[0];
+      const details = getMediaDetails(message);
+      if (details) {
+        media = { ...details, timestamp: Date.now() };
+        mediaCache.set(cacheKey, media);
+      }
+    }
 
     if (!media) {
       return res.status(404).json({ error: 'Media not found in specified message.' });
@@ -226,8 +238,8 @@ app.get(['/stream/:channelId/:messageId', '/stream'], async (req, res) => {
         return;
       }
 
-      // Max chunk per HTTP Range response: 2MB for fast responsive seeking
-      const MAX_CHUNK = 2 * 1024 * 1024;
+      // Max chunk per HTTP Range response: 4MB for smooth uninterrupted video buffering
+      const MAX_CHUNK = 4 * 1024 * 1024;
       if (end - start + 1 > MAX_CHUNK) {
         end = Math.min(start + MAX_CHUNK - 1, fileSize - 1);
       }
@@ -244,12 +256,12 @@ app.get(['/stream/:channelId/:messageId', '/stream'], async (req, res) => {
         'Cache-Control': 'no-cache'
       });
 
-      // Stream chunks via GramJS
+      // Stream chunks via GramJS with 512KB MTProto block size for faster throughput
       for await (const chunk of tgClient.iterDownload({
         file: media.media,
         offset: start,
         limit: chunkSize,
-        requestSize: 256 * 1024
+        requestSize: 512 * 1024
       })) {
         if (isAborted) break;
         res.write(chunk);
