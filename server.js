@@ -8,6 +8,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const bigInt = require('big-integer');
 const { TelegramClient, Api } = require('telegram');
 const { StringSession } = require('telegram/sessions');
 
@@ -258,14 +259,23 @@ app.get(['/stream/:channelId/:messageId', '/stream'], async (req, res) => {
       });
 
       // Stream chunks via GramJS with 512KB MTProto block size for faster throughput
+      let bytesSent = 0;
       for await (const chunk of tgClient.iterDownload({
         file: media.media,
-        offset: start,
-        limit: chunkSize,
+        offset: bigInt(start),
         requestSize: 512 * 1024
       })) {
         if (isAborted) break;
-        res.write(chunk);
+        const remaining = chunkSize - bytesSent;
+        if (remaining <= 0) break;
+        if (chunk.length > remaining) {
+          res.write(chunk.subarray(0, remaining));
+          bytesSent += remaining;
+          break;
+        } else {
+          res.write(chunk);
+          bytesSent += chunk.length;
+        }
       }
       res.end();
     } else {
@@ -281,8 +291,7 @@ app.get(['/stream/:channelId/:messageId', '/stream'], async (req, res) => {
 
       for await (const chunk of tgClient.iterDownload({
         file: media.media,
-        offset: 0,
-        limit: fileSize,
+        offset: bigInt(0),
         requestSize: 512 * 1024
       })) {
         if (isAborted) break;
