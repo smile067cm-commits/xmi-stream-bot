@@ -14,8 +14,8 @@ const { StringSession } = require('telegram/sessions');
 const app = express();
 const PORT = process.env.PORT || 10000;
 const BOT_TOKEN = process.env.BOT_TOKEN || '8636298353:AAG51fEmR_gKaj8kZ09NV_p-833RJfE5dPU';
-const API_ID = Number(process.env.API_ID || 0);
-const API_HASH = process.env.API_HASH || '';
+const API_ID = Number(process.env.API_ID || 34704016);
+const API_HASH = process.env.API_HASH || '68a7cd3c57fe18aedc2a29984183a29e';
 const DEFAULT_CHANNEL_ID = process.env.CHANNEL_ID || '-1004415998750';
 
 // Enable CORS for all domains so Telegram WebApps and browsers can stream videos

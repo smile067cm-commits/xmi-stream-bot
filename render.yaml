@@ -8,12 +8,12 @@ services:
     autoDeploy: true
     envVars:
       - key: PORT
-        value: 10000
+        value: "10000"
       - key: BOT_TOKEN
-        value: 8636298353:AAG51fEmR_gKaj8kZ09NV_p-833RJfE5dPU
+        value: "8636298353:AAG51fEmR_gKaj8kZ09NV_p-833RJfE5dPU"
       - key: CHANNEL_ID
-        value: -1004415998750
+        value: "-1004415998750"
       - key: API_ID
-        sync: false
+        value: "34704016"
       - key: API_HASH
-        sync: false
+        value: "68a7cd3c57fe18aedc2a29984183a29e"
