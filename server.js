@@ -168,6 +168,84 @@ app.get('/info/:channelId/:messageId', async (req, res) => {
 });
 
 // ==============================================================================
+// 3B. THUMBNAIL EXTRACTION ROUTE: Extract video/media thumbnail from message
+// Supports:
+//   /thumb/:channelId/:messageId
+//   /thumb?channel_id=...&msg_id=...
+// ==============================================================================
+const thumbCache = new Map();
+
+app.get(['/thumb/:channelId/:messageId', '/thumb', '/thumbnail'], async (req, res) => {
+  try {
+    let rawChannelId = req.params.channelId || req.query.channel_id || DEFAULT_CHANNEL_ID;
+    let messageId = Number(req.params.messageId || req.query.msg_id || req.query.message_id);
+
+    if (!messageId) {
+      return res.status(400).json({ error: 'Missing message ID.' });
+    }
+
+    const cacheKey = `${rawChannelId}:${messageId}`;
+    const cached = thumbCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < 86400000)) {
+      res.writeHead(200, {
+        'Content-Type': 'image/jpeg',
+        'Content-Length': cached.buffer.length,
+        'Cache-Control': 'public, max-age=86400, immutable',
+        'Access-Control-Allow-Origin': '*'
+      });
+      return res.end(cached.buffer);
+    }
+
+    let channelTarget = rawChannelId;
+    if (typeof channelTarget === 'string' && channelTarget.startsWith('-100')) {
+      channelTarget = Number(channelTarget);
+    }
+
+    const tgClient = await getTelegramClient();
+    if (!tgClient) {
+      return res.status(503).json({ error: 'Telegram MTProto client is not configured.' });
+    }
+
+    const messages = await tgClient.getMessages(channelTarget, { ids: [messageId] });
+    const message = messages && messages[0];
+    if (!message || !message.media) {
+      return res.status(404).json({ error: 'Media not found in specified message.' });
+    }
+
+    let buffer = null;
+    try {
+      buffer = await tgClient.downloadMedia(message.media, { thumb: -1 });
+    } catch (_) {
+      try {
+        buffer = await tgClient.downloadMedia(message, { thumb: 1 });
+      } catch (e2) {
+        console.warn('Download media thumb error:', e2.message);
+      }
+    }
+
+    if (buffer && buffer.length > 0) {
+      thumbCache.set(cacheKey, { buffer, timestamp: Date.now() });
+      res.writeHead(200, {
+        'Content-Type': 'image/jpeg',
+        'Content-Length': buffer.length,
+        'Cache-Control': 'public, max-age=86400, immutable',
+        'Access-Control-Allow-Origin': '*'
+      });
+      return res.end(buffer);
+    }
+
+    return res.status(404).json({ error: 'Thumbnail not available' });
+  } catch (err) {
+    console.error('Thumbnail extract error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message || 'Internal server error' });
+    } else {
+      res.end();
+    }
+  }
+});
+
+// ==============================================================================
 // 4. MAIN STREAMING ROUTE: Channel Message Streaming with HTTP Range Support
 // Supports both:
 //   /stream/:channelId/:messageId
