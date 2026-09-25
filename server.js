@@ -173,7 +173,35 @@ app.get('/info/:channelId/:messageId', async (req, res) => {
 //   /thumb/:channelId/:messageId
 //   /thumb?channel_id=...&msg_id=...
 // ==============================================================================
-const thumbCache = new Map();
+// 3B. THUMBNAIL EXTRACTION ROUTE: Extract video thumbnail & upload to Catbox anonymously
+// Supports:
+//   /thumb/:channelId/:messageId
+//   /thumb?channel_id=...&msg_id=...
+// ==============================================================================
+const catboxThumbCache = new Map();
+
+async function uploadToCatbox(buffer, filename = 'thumb.jpg') {
+  try {
+    const formData = new FormData();
+    formData.append('reqtype', 'fileupload');
+    const blob = new Blob([buffer], { type: 'image/jpeg' });
+    formData.append('fileToUpload', blob, filename);
+
+    const res = await fetch('https://catbox.moe/user/api.php', {
+      method: 'POST',
+      body: formData
+    });
+    if (res.ok) {
+      const text = await res.text();
+      if (text && text.trim().startsWith('http')) {
+        return text.trim();
+      }
+    }
+  } catch (err) {
+    console.warn('Catbox upload error:', err.message);
+  }
+  return null;
+}
 
 app.get(['/thumb/:channelId/:messageId', '/thumb', '/thumbnail'], async (req, res) => {
   try {
@@ -185,15 +213,12 @@ app.get(['/thumb/:channelId/:messageId', '/thumb', '/thumbnail'], async (req, re
     }
 
     const cacheKey = `${rawChannelId}:${messageId}`;
-    const cached = thumbCache.get(cacheKey);
-    if (cached && (Date.now() - cached.timestamp < 86400000)) {
-      res.writeHead(200, {
-        'Content-Type': 'image/jpeg',
-        'Content-Length': cached.buffer.length,
-        'Cache-Control': 'public, max-age=86400, immutable',
-        'Access-Control-Allow-Origin': '*'
-      });
-      return res.end(cached.buffer);
+    const cachedCatboxUrl = catboxThumbCache.get(cacheKey);
+    if (cachedCatboxUrl) {
+      if (req.query.json === '1' || req.query.format === 'json') {
+        return res.status(200).json({ success: true, url: cachedCatboxUrl });
+      }
+      return res.redirect(302, cachedCatboxUrl);
     }
 
     let channelTarget = rawChannelId;
@@ -212,19 +237,36 @@ app.get(['/thumb/:channelId/:messageId', '/thumb', '/thumbnail'], async (req, re
       return res.status(404).json({ error: 'Media not found in specified message.' });
     }
 
+    // Extract thumbnail ONLY without downloading the entire video file!
+    const doc = message.media.document || message.media.video;
+    const thumbs = (doc && doc.thumbs && doc.thumbs.length > 0) ? doc.thumbs : [];
+    
+    // Pick the largest available thumbnail (e.g. 'm' or 'x') or first PhotoSize
+    const targetThumb = thumbs.length > 0 ? thumbs[thumbs.length - 1] : 0;
+
     let buffer = null;
     try {
-      buffer = await tgClient.downloadMedia(message.media, { thumb: -1 });
+      buffer = await tgClient.downloadMedia(message.media, { thumb: targetThumb });
     } catch (_) {
       try {
-        buffer = await tgClient.downloadMedia(message, { thumb: 1 });
+        buffer = await tgClient.downloadMedia(message, { thumb: 0 });
       } catch (e2) {
         console.warn('Download media thumb error:', e2.message);
       }
     }
 
     if (buffer && buffer.length > 0) {
-      thumbCache.set(cacheKey, { buffer, timestamp: Date.now() });
+      // Upload thumbnail to Catbox anonymously for permanent CDN hosting
+      const catboxUrl = await uploadToCatbox(buffer, `thumb_${messageId}.jpg`);
+      if (catboxUrl) {
+        catboxThumbCache.set(cacheKey, catboxUrl);
+        if (req.query.json === '1' || req.query.format === 'json') {
+          return res.status(200).json({ success: true, url: catboxUrl });
+        }
+        return res.redirect(302, catboxUrl);
+      }
+
+      // If Catbox upload temporarily fails, serve direct JPEG buffer
       res.writeHead(200, {
         'Content-Type': 'image/jpeg',
         'Content-Length': buffer.length,
